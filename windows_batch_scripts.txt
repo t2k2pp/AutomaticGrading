@@ -1,0 +1,366 @@
+@echo off
+REM ========================================
+REM Windows用バッチファイル作成スクリプト
+REM 以下の内容を個別のバッチファイルとして保存してください
+REM ========================================
+
+REM ========================================
+REM 1. setup.bat - 初回セットアップ
+REM ========================================
+echo @echo off > setup.bat
+echo setlocal EnableDelayedExpansion >> setup.bat
+echo. >> setup.bat
+echo echo ================================================ >> setup.bat
+echo echo PM試験AI採点システム - 初回セットアップ >> setup.bat
+echo echo ================================================ >> setup.bat
+echo. >> setup.bat
+echo REM Docker Desktopの確認 >> setup.bat
+echo echo 1. Docker Desktopの確認... >> setup.bat
+echo docker version ^>nul 2^>^&1 >> setup.bat
+echo if errorlevel 1 ( >> setup.bat
+echo     echo [ERROR] Dockerがインストールされていません。 >> setup.bat
+echo     echo Docker Desktopをインストールしてください。 >> setup.bat
+echo     pause >> setup.bat
+echo     exit /b 1 >> setup.bat
+echo ) >> setup.bat
+echo. >> setup.bat
+echo docker info ^>nul 2^>^&1 >> setup.bat
+echo if errorlevel 1 ( >> setup.bat
+echo     echo [ERROR] Docker Desktopが起動していません。 >> setup.bat
+echo     echo 起動してから再実行してください。 >> setup.bat
+echo     pause >> setup.bat
+echo     exit /b 1 >> setup.bat
+echo ) >> setup.bat
+echo. >> setup.bat
+echo echo [OK] Docker Desktopが正常に動作しています >> setup.bat
+echo docker version >> setup.bat
+echo. >> setup.bat
+echo REM 必要なディレクトリの作成 >> setup.bat
+echo echo. >> setup.bat
+echo echo 2. ディレクトリ構造の作成... >> setup.bat
+echo. >> setup.bat
+echo for %%%%D in ( >> setup.bat
+echo     "src\api" >> setup.bat
+echo     "src\ai_engine" >> setup.bat
+echo     "src\web" >> setup.bat
+echo     "docker\postgres\init" >> setup.bat
+echo     "docker\ai_engine" >> setup.bat
+echo     "docker\api" >> setup.bat
+echo     "docker\web" >> setup.bat
+echo     "docker\jupyter" >> setup.bat
+echo     "docker\nginx\conf.d" >> setup.bat
+echo     "config" >> setup.bat
+echo     "models" >> setup.bat
+echo     "data\input" >> setup.bat
+echo     "data\output" >> setup.bat
+echo     "logs\api" >> setup.bat
+echo     "logs\ai" >> setup.bat
+echo     "logs\celery" >> setup.bat
+echo     "notebooks" >> setup.bat
+echo ) do ( >> setup.bat
+echo     if not exist %%%%D mkdir %%%%D >> setup.bat
+echo     echo   [OK] %%%%D >> setup.bat
+echo ) >> setup.bat
+echo. >> setup.bat
+echo REM 環境変数ファイルの作成 >> setup.bat
+echo echo. >> setup.bat
+echo echo 3. 環境変数ファイルの作成... >> setup.bat
+echo. >> setup.bat
+echo if not exist .env ( >> setup.bat
+echo     echo # データベース設定 ^> .env >> setup.bat
+echo     echo DB_USER=scoring_user ^>^> .env >> setup.bat
+echo     echo DB_PASSWORD=scoring_pass_change_in_production ^>^> .env >> setup.bat
+echo     echo DB_NAME=pm_scoring ^>^> .env >> setup.bat
+echo     echo. ^>^> .env >> setup.bat
+echo     echo # API設定 ^>^> .env >> setup.bat
+echo     echo SECRET_KEY=your-secret-key-change-in-production ^>^> .env >> setup.bat
+echo     echo ENVIRONMENT=development ^>^> .env >> setup.bat
+echo     echo LOG_LEVEL=INFO ^>^> .env >> setup.bat
+echo     echo. ^>^> .env >> setup.bat
+echo     echo # AI設定 ^>^> .env >> setup.bat
+echo     echo AI_MODEL=gpt-4 ^>^> .env >> setup.bat
+echo     echo GPU_DEVICE=0 ^>^> .env >> setup.bat
+echo     echo. ^>^> .env >> setup.bat
+echo     echo # 開発ツール設定 ^>^> .env >> setup.bat
+echo     echo PGADMIN_EMAIL=admin@example.com ^>^> .env >> setup.bat
+echo     echo PGADMIN_PASSWORD=admin ^>^> .env >> setup.bat
+echo     echo JUPYTER_TOKEN=scoring2024 ^>^> .env >> setup.bat
+echo     echo. ^>^> .env >> setup.bat
+echo     echo # その他 ^>^> .env >> setup.bat
+echo     echo API_URL=http://localhost:8000 ^>^> .env >> setup.bat
+echo     echo NODE_ENV=development ^>^> .env >> setup.bat
+echo     echo [OK] .envファイルを作成しました >> setup.bat
+echo ) else ( >> setup.bat
+echo     echo [OK] .envファイルは既に存在します >> setup.bat
+echo ) >> setup.bat
+echo. >> setup.bat
+echo echo. >> setup.bat
+echo echo ================================================ >> setup.bat
+echo echo セットアップが完了しました！ >> setup.bat
+echo echo ================================================ >> setup.bat
+echo echo. >> setup.bat
+echo echo 次のステップ: >> setup.bat
+echo echo 1. 必要に応じて .env ファイルを編集してください >> setup.bat
+echo echo 2. build.bat を実行してDockerイメージをビルドしてください >> setup.bat
+echo echo 3. start.bat を実行してシステムを起動してください >> setup.bat
+echo echo. >> setup.bat
+echo pause >> setup.bat
+
+REM ========================================
+REM 2. build.bat - Dockerイメージビルド
+REM ========================================
+echo @echo off > build.bat
+echo setlocal >> build.bat
+echo. >> build.bat
+echo echo ================================================ >> build.bat
+echo echo PM試験AI採点システム - Dockerイメージビルド >> build.bat
+echo echo ================================================ >> build.bat
+echo. >> build.bat
+echo set COMPOSE_PROFILES= >> build.bat
+echo. >> build.bat
+echo if "%%1"=="--production" ( >> build.bat
+echo     echo 本番環境用イメージをビルドします >> build.bat
+echo     set COMPOSE_PROFILES= >> build.bat
+echo ) else ( >> build.bat
+echo     echo 開発環境用イメージをビルドします >> build.bat
+echo     set COMPOSE_PROFILES=--profile development >> build.bat
+echo ) >> build.bat
+echo. >> build.bat
+echo if "%%1"=="--clean" ( >> build.bat
+echo     echo 古いイメージをクリーンアップします... >> build.bat
+echo     docker-compose down -v >> build.bat
+echo     docker system prune -f >> build.bat
+echo ) >> build.bat
+echo if "%%2"=="--clean" ( >> build.bat
+echo     echo 古いイメージをクリーンアップします... >> build.bat
+echo     docker-compose down -v >> build.bat
+echo     docker system prune -f >> build.bat
+echo ) >> build.bat
+echo. >> build.bat
+echo echo Dockerイメージをビルドしています... >> build.bat
+echo docker-compose build --no-cache %%COMPOSE_PROFILES%% >> build.bat
+echo. >> build.bat
+echo if errorlevel 1 ( >> build.bat
+echo     echo [ERROR] ビルドに失敗しました >> build.bat
+echo     pause >> build.bat
+echo     exit /b 1 >> build.bat
+echo ) >> build.bat
+echo. >> build.bat
+echo echo. >> build.bat
+echo echo ================================================ >> build.bat
+echo echo ビルドが正常に完了しました >> build.bat
+echo echo ================================================ >> build.bat
+echo echo. >> build.bat
+echo docker-compose images >> build.bat
+echo echo. >> build.bat
+echo echo 次のステップ: start.bat を実行してシステムを起動してください >> build.bat
+echo pause >> build.bat
+
+REM ========================================
+REM 3. start.bat - システム起動
+REM ========================================
+echo @echo off > start.bat
+echo setlocal >> start.bat
+echo. >> start.bat
+echo echo ================================================ >> start.bat
+echo echo PM試験AI採点システム - 起動 >> start.bat
+echo echo ================================================ >> start.bat
+echo. >> start.bat
+echo REM Docker Desktopの確認 >> start.bat
+echo docker info ^>nul 2^>^&1 >> start.bat
+echo if errorlevel 1 ( >> start.bat
+echo     echo [ERROR] Docker Desktopが起動していません。 >> start.bat
+echo     echo 起動してから再実行してください。 >> start.bat
+echo     pause >> start.bat
+echo     exit /b 1 >> start.bat
+echo ) >> start.bat
+echo. >> start.bat
+echo set MODE=development >> start.bat
+echo set COMPOSE_PROFILES=--profile development >> start.bat
+echo set SERVICES= >> start.bat
+echo. >> start.bat
+echo if "%%1"=="--production" ( >> start.bat
+echo     set MODE=production >> start.bat
+echo     set COMPOSE_PROFILES= >> start.bat
+echo     echo 本番モードで起動します >> start.bat
+echo ) else if "%%1"=="--minimal" ( >> start.bat
+echo     set MODE=minimal >> start.bat
+echo     set COMPOSE_PROFILES= >> start.bat
+echo     set SERVICES=postgres redis api >> start.bat
+echo     echo 最小構成で起動します >> start.bat
+echo ) else ( >> start.bat
+echo     echo 開発モードで起動します >> start.bat
+echo ) >> start.bat
+echo. >> start.bat
+echo echo コンテナを起動しています... >> start.bat
+echo. >> start.bat
+echo if "%%SERVICES%%"=="" ( >> start.bat
+echo     docker-compose %%COMPOSE_PROFILES%% up -d >> start.bat
+echo ) else ( >> start.bat
+echo     docker-compose up -d %%SERVICES%% >> start.bat
+echo ) >> start.bat
+echo. >> start.bat
+echo if errorlevel 1 ( >> start.bat
+echo     echo [ERROR] 起動に失敗しました >> start.bat
+echo     pause >> start.bat
+echo     exit /b 1 >> start.bat
+echo ) >> start.bat
+echo. >> start.bat
+echo echo. >> start.bat
+echo echo 起動状態を確認しています... >> start.bat
+echo timeout /t 5 /nobreak ^> nul >> start.bat
+echo. >> start.bat
+echo echo. >> start.bat
+echo echo ヘルスチェック... >> start.bat
+echo. >> start.bat
+echo REM PostgreSQLの確認 >> start.bat
+echo docker-compose exec -T postgres pg_isready -U scoring_user ^>nul 2^>^&1 >> start.bat
+echo if errorlevel 1 ( >> start.bat
+echo     echo   [NG] PostgreSQL: 異常 >> start.bat
+echo ) else ( >> start.bat
+echo     echo   [OK] PostgreSQL: 正常 >> start.bat
+echo ) >> start.bat
+echo. >> start.bat
+echo REM Redisの確認 >> start.bat
+echo docker-compose exec -T redis redis-cli ping ^>nul 2^>^&1 >> start.bat
+echo if errorlevel 1 ( >> start.bat
+echo     echo   [NG] Redis: 異常 >> start.bat
+echo ) else ( >> start.bat
+echo     echo   [OK] Redis: 正常 >> start.bat
+echo ) >> start.bat
+echo. >> start.bat
+echo echo. >> start.bat
+echo echo 実行中のコンテナ: >> start.bat
+echo docker-compose ps >> start.bat
+echo. >> start.bat
+echo echo. >> start.bat
+echo echo ================================================ >> start.bat
+echo echo システムが起動しました！ >> start.bat
+echo echo ================================================ >> start.bat
+echo echo. >> start.bat
+echo echo アクセスURL: >> start.bat
+echo echo   - Webインターフェース: http://localhost:3000 >> start.bat
+echo echo   - API: http://localhost:8000 >> start.bat
+echo echo   - API Documentation: http://localhost:8000/docs >> start.bat
+echo. >> start.bat
+echo if "%%MODE%%"=="development" ( >> start.bat
+echo     echo   - Flower ^(Celery^): http://localhost:5555 >> start.bat
+echo     echo   - pgAdmin: http://localhost:5050 ^(admin@example.com / admin^) >> start.bat
+echo     echo   - Jupyter: http://localhost:8888 ^(token: scoring2024^) >> start.bat
+echo ) >> start.bat
+echo. >> start.bat
+echo echo. >> start.bat
+echo echo ログを確認: logs.bat [service_name] >> start.bat
+echo echo 停止: stop.bat >> start.bat
+echo echo. >> start.bat
+echo pause >> start.bat
+
+REM ========================================
+REM 4. stop.bat - システム停止
+REM ========================================
+echo @echo off > stop.bat
+echo setlocal >> stop.bat
+echo. >> stop.bat
+echo echo ================================================ >> stop.bat
+echo echo PM試験AI採点システム - 停止 >> stop.bat
+echo echo ================================================ >> stop.bat
+echo. >> stop.bat
+echo if "%%1"=="--clean" ( >> stop.bat
+echo     echo 警告: データを含むすべてのボリュームが削除されます！ >> stop.bat
+echo     set /p response="続行しますか？ (y/N): " >> stop.bat
+echo     if /i "!response!"=="y" ( >> stop.bat
+echo         echo コンテナとボリュームを削除しています... >> stop.bat
+echo         docker-compose down -v >> stop.bat
+echo         echo [OK] クリーンアップが完了しました >> stop.bat
+echo     ) else ( >> stop.bat
+echo         echo キャンセルしました >> stop.bat
+echo         exit /b 0 >> stop.bat
+echo     ) >> stop.bat
+echo ) else ( >> stop.bat
+echo     echo コンテナを停止しています... >> stop.bat
+echo     docker-compose down >> stop.bat
+echo     echo [OK] コンテナを停止しました >> stop.bat
+echo ) >> stop.bat
+echo. >> stop.bat
+echo echo. >> stop.bat
+echo echo 停止状態を確認しています... >> stop.bat
+echo docker-compose ps >> stop.bat
+echo. >> stop.bat
+echo echo. >> stop.bat
+echo echo ================================================ >> stop.bat
+echo echo システムを停止しました >> stop.bat
+echo echo ================================================ >> stop.bat
+echo echo. >> stop.bat
+echo echo 再起動: start.bat >> stop.bat
+echo echo データを含めて削除: stop.bat --clean >> stop.bat
+echo echo. >> stop.bat
+echo pause >> stop.bat
+
+REM ========================================
+REM 5. logs.bat - ログ確認
+REM ========================================
+echo @echo off > logs.bat
+echo. >> logs.bat
+echo echo ================================================ >> logs.bat
+echo echo PM試験AI採点システム - ログ確認 >> logs.bat
+echo echo ================================================ >> logs.bat
+echo. >> logs.bat
+echo if "%%1"=="" ( >> logs.bat
+echo     echo 使用方法: logs.bat [service_name] >> logs.bat
+echo     echo. >> logs.bat
+echo     echo 利用可能なサービス: >> logs.bat
+echo     echo   - postgres      ^(データベース^) >> logs.bat
+echo     echo   - redis         ^(キャッシュ^) >> logs.bat
+echo     echo   - ai_engine     ^(AI推論^) >> logs.bat
+echo     echo   - api           ^(FastAPI^) >> logs.bat
+echo     echo   - web           ^(フロントエンド^) >> logs.bat
+echo     echo   - nginx         ^(リバースプロキシ^) >> logs.bat
+echo     echo   - celery_worker ^(非同期タスク^) >> logs.bat
+echo     echo   - all           ^(すべてのサービス^) >> logs.bat
+echo     echo. >> logs.bat
+echo     echo 例: logs.bat api >> logs.bat
+echo     echo     logs.bat all >> logs.bat
+echo     pause >> logs.bat
+echo     exit /b 1 >> logs.bat
+echo ) >> logs.bat
+echo. >> logs.bat
+echo if "%%1"=="all" ( >> logs.bat
+echo     docker-compose logs -f >> logs.bat
+echo ) else ( >> logs.bat
+echo     docker-compose logs -f %%1 >> logs.bat
+echo ) >> logs.bat
+
+REM ========================================
+REM 6. exec.bat - コンテナ内でコマンド実行
+REM ========================================
+echo @echo off > exec.bat
+echo. >> exec.bat
+echo echo ================================================ >> exec.bat
+echo echo PM試験AI採点システム - コンテナ接続 >> exec.bat
+echo echo ================================================ >> exec.bat
+echo. >> exec.bat
+echo if "%%1"=="" ( >> exec.bat
+echo     echo 使用方法: exec.bat [service_name] [command] >> exec.bat
+echo     echo. >> exec.bat
+echo     echo 例: >> exec.bat
+echo     echo   exec.bat api bash >> exec.bat
+echo     echo   exec.bat postgres psql -U scoring_user -d pm_scoring >> exec.bat
+echo     echo   exec.bat redis redis-cli >> exec.bat
+echo     pause >> exec.bat
+echo     exit /b 1 >> exec.bat
+echo ) >> exec.bat
+echo. >> exec.bat
+echo if "%%2"=="" ( >> exec.bat
+echo     docker-compose exec %%1 /bin/bash >> exec.bat
+echo ) else ( >> exec.bat
+echo     docker-compose exec %%1 %%2 %%3 %%4 %%5 %%6 %%7 %%8 %%9 >> exec.bat
+echo ) >> exec.bat
+
+echo.
+echo Windowsバッチファイルを作成しました:
+echo   - setup.bat  : 初回セットアップ
+echo   - build.bat  : Dockerイメージのビルド
+echo   - start.bat  : システム起動
+echo   - stop.bat   : システム停止
+echo   - logs.bat   : ログ確認
+echo   - exec.bat   : コンテナ接続

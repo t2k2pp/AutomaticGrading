@@ -1,0 +1,24 @@
+# PM試験AI採点システム - Jupyter要件
+# データ分析関連
+pandas==2.1.4
+numpy==1.25.2
+matplotlib==3.8.2
+seaborn==0.13.0
+plotly==5.17.0
+
+# 機械学習関連
+scikit-learn==1.3.2
+scipy==1.11.4
+
+# データベース接続
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+
+# Jupyter拡張
+jupyter==1.0.0
+jupyterlab==4.0.9
+ipywidgets==8.1.1
+
+# その他ユーティリティ
+requests==2.31.0
+python-dotenv==1.0.0

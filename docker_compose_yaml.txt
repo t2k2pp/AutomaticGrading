@@ -1,0 +1,253 @@
+# PM試験AI採点システム Docker Compose設定
+version: '3.9'
+
+services:
+  # PostgreSQLデータベース
+  postgres:
+    image: postgres:15-alpine
+    container_name: pm_scoring_db
+    environment:
+      POSTGRES_USER: ${DB_USER:-scoring_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-scoring_pass}
+      POSTGRES_DB: ${DB_NAME:-pm_scoring}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=ja_JP.UTF-8"
+      TZ: Asia/Tokyo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-scoring_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scoring_network
+
+  # Redisキャッシュ/キューサーバー
+  redis:
+    image: redis:7-alpine
+    container_name: pm_scoring_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scoring_network
+
+  # AI推論サービス（GPU対応）
+  ai_engine:
+    build:
+      context: .
+      dockerfile: ./docker/ai_engine/Dockerfile
+      args:
+        PYTHON_VERSION: "3.10"
+    container_name: pm_scoring_ai
+    environment:
+      MODEL_NAME: ${AI_MODEL:-gpt-4}
+      TEMPERATURE: 0.1
+      MAX_WORKERS: 4
+      CUDA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
+      HF_HOME: /app/cache/huggingface
+      TRANSFORMERS_CACHE: /app/cache/transformers
+    volumes:
+      - ./src/ai_engine:/app/src
+      - ./models:/app/models
+      - ai_cache:/app/cache
+      - ./logs/ai:/app/logs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - redis
+    networks:
+      - scoring_network
+    restart: unless-stopped
+
+  # FastAPIアプリケーション
+  api:
+    build:
+      context: .
+      dockerfile: ./docker/api/Dockerfile
+    container_name: pm_scoring_api
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-scoring_user}:${DB_PASSWORD:-scoring_pass}@postgres:5432/${DB_NAME:-pm_scoring}
+      REDIS_URL: redis://redis:6379
+      AI_ENGINE_URL: http://ai_engine:8001
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TZ: Asia/Tokyo
+    volumes:
+      - ./src/api:/app/src
+      - ./config:/app/config
+      - ./logs/api:/app/logs
+      - uploaded_files:/app/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai_engine:
+        condition: service_started
+    networks:
+      - scoring_network
+    restart: unless-stopped
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  # Webインターフェース（React）
+  web:
+    build:
+      context: .
+      dockerfile: ./docker/web/Dockerfile
+      args:
+        NODE_VERSION: "18"
+    container_name: pm_scoring_web
+    environment:
+      REACT_APP_API_URL: ${API_URL:-http://localhost:8000}
+      NODE_ENV: ${NODE_ENV:-development}
+    volumes:
+      - ./src/web:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - scoring_network
+    command: ["npm", "start"]
+
+  # Nginxリバースプロキシ
+  nginx:
+    image: nginx:alpine
+    container_name: pm_scoring_nginx
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - nginx_logs:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - api
+      - web
+    networks:
+      - scoring_network
+    restart: unless-stopped
+
+  # Celeryワーカー（非同期タスク処理）
+  celery_worker:
+    build:
+      context: .
+      dockerfile: ./docker/api/Dockerfile
+    container_name: pm_scoring_celery
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-scoring_user}:${DB_PASSWORD:-scoring_pass}@postgres:5432/${DB_NAME:-pm_scoring}
+      REDIS_URL: redis://redis:6379
+      AI_ENGINE_URL: http://ai_engine:8001
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      TZ: Asia/Tokyo
+    volumes:
+      - ./src/api:/app/src
+      - ./config:/app/config
+      - ./logs/celery:/app/logs
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - scoring_network
+    restart: unless-stopped
+    command: ["celery", "-A", "src.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+
+  # Flower（Celeryモニタリング）
+  flower:
+    build:
+      context: .
+      dockerfile: ./docker/api/Dockerfile
+    container_name: pm_scoring_flower
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - celery_worker
+    networks:
+      - scoring_network
+    command: ["celery", "-A", "src.celery_app", "flower", "--port=5555"]
+
+  # Jupyterノートブック（開発・分析用）
+  jupyter:
+    build:
+      context: .
+      dockerfile: ./docker/jupyter/Dockerfile
+    container_name: pm_scoring_jupyter
+    environment:
+      JUPYTER_ENABLE_LAB: "yes"
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN:-scoring2024}
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./data:/home/jovyan/data
+      - ./models:/home/jovyan/models
+    ports:
+      - "8888:8888"
+    networks:
+      - scoring_network
+    profiles:
+      - development
+
+  # pgAdmin（DB管理ツール）
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pm_scoring_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - scoring_network
+    profiles:
+      - development
+
+networks:
+  scoring_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ai_cache:
+    driver: local
+  uploaded_files:
+    driver: local
+  nginx_logs:
+    driver: local
+  pgadmin_data:
+    driver: local
