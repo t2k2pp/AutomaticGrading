@@ -79,10 +79,20 @@ interface Answer {
 
 interface Question {
   id: number;
+  exam_id: number;
   title: string;
-  text: string;
-  max_score: number;
-  char_limit: number;
+  question_number: string;
+  background_text: string;
+  question_text: string;
+  sub_questions: string[] | null;
+  model_answer: string;
+  max_chars: number;
+  points: number;
+  grading_intention: string | null;
+  grading_commentary: string | null;
+  keywords: string[] | null;
+  has_sub_questions: boolean;
+  display_name: string;
 }
 
 interface ScoringResult {
@@ -154,10 +164,20 @@ export const ScoringReview: React.FC = () => {
           },
           question: {
             id: 1,
+            exam_id: 1,
             title: "リスク管理",
-            text: "ITプロジェクトにおけるリスク管理について、あなたの経験を踏まえて論述してください。",
-            max_score: 25,
-            char_limit: 400
+            question_number: "問2",
+            background_text: "あなたは、IT企業のプロジェクトマネージャとして、様々なプロジェクトを経験してきました。",
+            question_text: "ITプロジェクトにおけるリスク管理について、あなたの経験を踏まえて論述してください。",
+            sub_questions: null,
+            model_answer: "リスク管理は特定、分析、対応、監視の各段階からなる継続的なプロセスです。",
+            max_chars: 400,
+            points: 25,
+            grading_intention: "リスク管理に関する知識と実務経験の活用能力を評価する",
+            grading_commentary: "具体的な経験に基づく実践的な提案を評価する",
+            keywords: ["リスク特定", "リスク分析", "対応策", "監視"],
+            has_sub_questions: false,
+            display_name: "問2: リスク管理"
           },
           status: "completed",
           total_score: 18.5,
@@ -356,14 +376,48 @@ export const ScoringReview: React.FC = () => {
           <Card sx={{ mb: 2 }}>
             <CardContent>
               <Typography variant="h6" gutterBottom color="primary">
-                📝 問題
+                📝 {result.question.question_number}: {result.question.title}
+              </Typography>
+
+              {/* 背景情報 */}
+              {result.question.background_text && (
+                <>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+                    【背景情報・プロジェクト概要】
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 2, whiteSpace: 'pre-line', bgcolor: 'background.paper', p: 2, borderRadius: 1 }}>
+                    {result.question.background_text}
+                  </Typography>
+                </>
+              )}
+
+              {/* 設問 */}
+              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+                【設問】
               </Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>
-                {result.question.text}
+                {result.question.question_text}
               </Typography>
+
+              {/* 複数設問がある場合 */}
+              {result.question.has_sub_questions && result.question.sub_questions && (
+                <>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+                    【詳細設問】
+                  </Typography>
+                  <Box sx={{ ml: 2, mb: 2 }}>
+                    {result.question.sub_questions.map((subQ, index) => (
+                      <Typography key={index} variant="body2" sx={{ mb: 1 }}>
+                        {index + 1}. {subQ}
+                      </Typography>
+                    ))}
+                  </Box>
+                </>
+              )}
+
               <Divider sx={{ my: 2 }} />
               <Typography variant="body2" color="text.secondary">
-                満点: {result.question.max_score}点 | 制限: {result.question.char_limit}文字
+                配点: {result.question.points}点 | 制限: {result.question.max_chars}文字
               </Typography>
             </CardContent>
           </Card>

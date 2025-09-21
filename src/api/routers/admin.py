@@ -11,9 +11,10 @@ import csv
 import io
 import logging
 
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models.exam import Exam, ExamSeason
 from ..models.question import Question
+from ..auth.admin_auth import AdminAuth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -102,7 +103,11 @@ class QuestionCSVUploadStatus(BaseModel):
 
 
 @router.post("/exams", response_model=ExamResponse)
-async def create_exam(exam: ExamCreate, db: Session = Depends(get_db)):
+async def create_exam(
+    exam: ExamCreate,
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
+):
     """試験を作成"""
     try:
         db_exam = Exam(
@@ -129,7 +134,10 @@ async def create_exam(exam: ExamCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/exams", response_model=List[ExamResponse])
-async def get_exams(db: Session = Depends(get_db)):
+async def get_exams(
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
+):
     """試験一覧を取得"""
     try:
         exams = db.query(Exam).all()
@@ -147,7 +155,11 @@ async def get_exams(db: Session = Depends(get_db)):
 
 
 @router.get("/exams/{exam_id}", response_model=ExamResponse)
-async def get_exam(exam_id: int, db: Session = Depends(get_db)):
+async def get_exam(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
+):
     """試験詳細を取得"""
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
@@ -156,7 +168,11 @@ async def get_exam(exam_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/questions", response_model=QuestionResponse)
-async def create_question(question: QuestionCreate, db: Session = Depends(get_db)):
+async def create_question(
+    question: QuestionCreate,
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
+):
     """問題を作成"""
     try:
         # 試験の存在確認
@@ -206,7 +222,11 @@ async def create_question(question: QuestionCreate, db: Session = Depends(get_db
 
 
 @router.get("/questions", response_model=List[QuestionResponse])
-async def get_questions(exam_id: Optional[int] = None, db: Session = Depends(get_db)):
+async def get_questions(
+    exam_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
+):
     """問題一覧を取得"""
     query = db.query(Question)
     if exam_id:
@@ -215,7 +235,11 @@ async def get_questions(exam_id: Optional[int] = None, db: Session = Depends(get
 
 
 @router.get("/questions/{question_id}", response_model=QuestionResponse)
-async def get_question(question_id: int, db: Session = Depends(get_db)):
+async def get_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
+):
     """問題詳細を取得"""
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
@@ -224,7 +248,12 @@ async def get_question(question_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/questions/{question_id}", response_model=QuestionResponse)
-async def update_question(question_id: int, question_update: QuestionUpdate, db: Session = Depends(get_db)):
+async def update_question(
+    question_id: int,
+    question_update: QuestionUpdate,
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
+):
     """問題を更新"""
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
@@ -240,7 +269,11 @@ async def update_question(question_id: int, question_update: QuestionUpdate, db:
 
 
 @router.delete("/questions/{question_id}")
-async def delete_question(question_id: int, db: Session = Depends(get_db)):
+async def delete_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
+):
     """問題を削除"""
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
@@ -254,7 +287,8 @@ async def delete_question(question_id: int, db: Session = Depends(get_db)):
 @router.post("/questions/csv/preview")
 async def preview_questions_csv_upload(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
 ) -> QuestionCSVPreview:
     """
     問題CSVファイルの内容をプレビュー表示
@@ -316,7 +350,8 @@ async def execute_questions_csv_upload(
     background_tasks: BackgroundTasks,
     exam_name: str = Form(...),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: bool = Depends(AdminAuth.require_admin_auth)
 ) -> Dict[str, str]:
     """
     問題CSV一括アップロード実行
@@ -331,12 +366,12 @@ async def execute_questions_csv_upload(
         csv_content = content.decode('utf-8-sig')
 
         # バックグラウンドタスクで処理開始
+        # セッションファクトリを渡してタスク内で新しいセッションを作成
         background_tasks.add_task(
             _process_questions_csv_upload,
             upload_id,
             csv_content,
-            exam_name,
-            db
+            exam_name
         )
 
         return {
@@ -353,7 +388,10 @@ async def execute_questions_csv_upload(
 
 
 @router.get("/questions/csv/status/{upload_id}")
-async def get_questions_upload_status(upload_id: str) -> QuestionCSVUploadStatus:
+async def get_questions_upload_status(
+    upload_id: str,
+    _: bool = Depends(AdminAuth.require_admin_auth)
+) -> QuestionCSVUploadStatus:
     """
     問題アップロード処理状況確認
     """
@@ -437,12 +475,13 @@ def _check_question_data_quality(rows: List[Dict], column_mapping: Dict[str, str
 async def _process_questions_csv_upload(
     upload_id: str,
     csv_content: str,
-    exam_name: str,
-    db: Session
+    exam_name: str
 ):
     """
     バックグラウンドで問題CSV処理実行
     """
+    # バックグラウンドタスク用の独立したDBセッションを作成
+    db = SessionLocal()
     try:
         logger.info(f"Questions CSV upload {upload_id} processing started")
 
@@ -556,6 +595,9 @@ async def _process_questions_csv_upload(
         db.rollback()
         # TODO: エラー状態をRedisに保存
         # _save_upload_status(upload_id, "error", 0, 0, [str(e)])
+    finally:
+        # バックグラウンドタスク用のセッションを確実にクローズ
+        db.close()
 
 
 @router.get("/")

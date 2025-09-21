@@ -127,7 +127,11 @@ export const BatchUpload: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
-      formData.append('upload_request', JSON.stringify(uploadRequest));
+      formData.append('exam_name', uploadRequest.exam_name);
+      formData.append('question_text', uploadRequest.question_text);
+      formData.append('question_title', uploadRequest.question_title);
+      formData.append('max_score', uploadRequest.max_score.toString());
+      formData.append('char_limit', uploadRequest.char_limit.toString());
 
       const response = await fetch('/api/batch-upload/upload/execute', {
         method: 'POST',
@@ -230,7 +234,7 @@ export const BatchUpload: React.FC = () => {
 
             <Button
               variant="contained"
-              size="large"
+              size="medium"
               onClick={handleFileSelect}
               disabled={isLoading}
               sx={{
@@ -284,14 +288,14 @@ export const BatchUpload: React.FC = () => {
               <Chip
                 label={`${preview.total_rows} 人分のデータ`}
                 color="primary"
-                size="large"
+                size="medium"
                 sx={{ fontSize: '1rem', py: 2 }}
               />
               {preview.detected_issues.length === 0 && (
                 <Chip
                   label="✅ 問題なし"
                   color="success"
-                  size="large"
+                  size="medium"
                   sx={{ fontSize: '1rem', py: 2 }}
                 />
               )}
@@ -342,7 +346,7 @@ export const BatchUpload: React.FC = () => {
             <Box sx={{ mt: 4, display: 'flex', gap: 2, justifyContent: 'center' }}>
               <Button
                 variant="outlined"
-                size="large"
+                size="medium"
                 onClick={() => setCurrentStep(0)}
                 sx={{ px: 4, py: 1.5 }}
               >
@@ -350,7 +354,7 @@ export const BatchUpload: React.FC = () => {
               </Button>
               <Button
                 variant="contained"
-                size="large"
+                size="medium"
                 onClick={() => setCurrentStep(2)}
                 sx={{ px: 4, py: 1.5 }}
               >
@@ -457,7 +461,7 @@ export const BatchUpload: React.FC = () => {
             <Box sx={{ mt: 4, display: 'flex', gap: 2, justifyContent: 'center' }}>
               <Button
                 variant="outlined"
-                size="large"
+                size="medium"
                 onClick={() => setCurrentStep(1)}
                 sx={{ px: 4, py: 1.5 }}
               >
@@ -465,7 +469,7 @@ export const BatchUpload: React.FC = () => {
               </Button>
               <Button
                 variant="contained"
-                size="large"
+                size="medium"
                 onClick={handleUploadExecute}
                 disabled={isLoading}
                 sx={{ px: 4, py: 1.5 }}
@@ -500,7 +504,7 @@ export const BatchUpload: React.FC = () => {
                 label={uploadStatus.status === 'processing' ? '🔄 処理中' :
                        uploadStatus.status === 'completed' ? '✅ 完了' : '❌ エラー'}
                 color={getStatusColor(uploadStatus.status) as 'default'}
-                size="large"
+                size="medium"
                 sx={{ fontSize: '1.1rem', py: 2, mb: 2 }}
               />
               <Typography variant="body1" sx={{ mb: 2 }}>
@@ -536,7 +540,7 @@ export const BatchUpload: React.FC = () => {
               <Box sx={{ mt: 4, textAlign: 'center' }}>
                 <Button
                   variant="contained"
-                  size="large"
+                  size="medium"
                   sx={{ px: 6, py: 2 }}
                   href="/scoring-results"
                 >

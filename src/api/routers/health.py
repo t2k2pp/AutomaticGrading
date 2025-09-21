@@ -4,7 +4,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-import redis
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    redis = None
+    REDIS_AVAILABLE = False
 import httpx
 import time
 from typing import Dict, Any
@@ -25,6 +30,9 @@ class HealthChecker:
 
     def _init_redis(self):
         """Redis接続初期化"""
+        if not REDIS_AVAILABLE:
+            logger.warning("Redis module not available, skipping Redis initialization")
+            return
         try:
             self.redis_client = redis.from_url(settings.REDIS_URL)
         except Exception as e:

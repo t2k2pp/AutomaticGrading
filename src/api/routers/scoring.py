@@ -130,6 +130,12 @@ async def submit_answer(
             submitted_at=answer.submitted_at.isoformat()
         )
 
+    except ValueError as e:
+        logger.warning(f"解答提出バリデーションエラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         logger.error(f"解答提出エラー: {e}")
         raise HTTPException(

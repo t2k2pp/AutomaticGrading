@@ -2,7 +2,7 @@
 CSV一括アップロード API
 採点者向けに簡単操作で大量データを処理
 """
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks, Form
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
@@ -114,7 +114,11 @@ async def preview_csv_upload(
 @router.post("/upload/execute")
 async def execute_batch_upload(
     background_tasks: BackgroundTasks,
-    upload_request: BatchUploadRequest,
+    exam_name: str = Form(...),
+    question_text: str = Form(...),
+    question_title: str = Form(...),
+    max_score: int = Form(25),
+    char_limit: int = Form(400),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ) -> Dict[str, str]:
@@ -129,6 +133,15 @@ async def execute_batch_upload(
         # CSVファイル読み取り
         content = await file.read()
         csv_content = content.decode('utf-8-sig')
+
+        # アップロードリクエストオブジェクト作成
+        upload_request = BatchUploadRequest(
+            exam_name=exam_name,
+            question_text=question_text,
+            question_title=question_title,
+            max_score=max_score,
+            char_limit=char_limit
+        )
 
         # バックグラウンドタスクで処理開始
         background_tasks.add_task(
@@ -251,15 +264,22 @@ async def _process_batch_upload(
         question = Question(
             exam_id=exam.id,
             title=upload_request.question_title,
-            text=upload_request.question_text,
-            max_score=upload_request.max_score,
-            char_limit=upload_request.char_limit
+            question_number="問1",
+            background_text="CSV一括アップロードによる問題",
+            question_text=upload_request.question_text,
+            sub_questions=None,
+            model_answer="",
+            max_chars=upload_request.char_limit,
+            points=upload_request.max_score,
+            grading_intention="CSV一括アップロード時に設定された問題",
+            grading_commentary="",
+            keywords=None
         )
         db.add(question)
         db.flush()  # IDを取得するため
 
         # 3. 解答データを一括挿入
-        scoring_service = ScoringService()
+        scoring_service = ScoringService(db)
         success_count = 0
         error_count = 0
         errors = []
@@ -284,27 +304,19 @@ async def _process_batch_upload(
 
                 # 解答レコード作成
                 answer = Answer(
+                    exam_id=exam.id,
                     question_id=question.id,
-                    student_id=student_id,
-                    student_name=student_name,
+                    candidate_id=student_id,
                     answer_text=answer_text,
                     submitted_at=datetime.now()
                 )
+                answer.update_char_count()  # 文字数を自動計算
                 db.add(answer)
                 db.flush()
 
                 # AI採点を実行
                 try:
-                    scoring_result = await scoring_service.score_answer(
-                        question_text=upload_request.question_text,
-                        answer_text=answer_text,
-                        max_score=upload_request.max_score
-                    )
-
-                    # 採点結果を保存
-                    answer.score = scoring_result.total_score
-                    answer.ai_feedback = scoring_result.detailed_analysis.dict()
-                    answer.scored_at = datetime.now()
+                    scoring_result = await scoring_service.evaluate_answer(answer.id)
 
                     success_count += 1
 

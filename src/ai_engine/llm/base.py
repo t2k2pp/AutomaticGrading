@@ -36,6 +36,12 @@ class ScoringCriteria(BaseModel):
         "PM知識の活用",
         "文章表現力"
     ]
+    # IPA PM試験構造対応
+    background_text: Optional[str] = None
+    question_number: Optional[str] = None
+    sub_questions: Optional[List[str]] = None
+    model_answer: Optional[str] = None
+    grading_intention: Optional[str] = None
 
 
 class AspectDetail(BaseModel):
@@ -102,13 +108,45 @@ class BaseLLMProvider(ABC):
 
     def _build_scoring_prompt(self, criteria: ScoringCriteria) -> str:
         """採点用プロンプトを構築"""
+        # IPA PM試験構造に対応した問題文の構築
+        full_question = ""
+
+        if criteria.background_text:
+            full_question += f"【背景情報・プロジェクト概要】\n{criteria.background_text}\n\n"
+
+        if criteria.question_number:
+            full_question += f"【{criteria.question_number}】\n"
+
+        full_question += f"【設問】\n{criteria.question_text}"
+
+        if criteria.sub_questions:
+            full_question += "\n\n【詳細設問】\n"
+            for i, sub_q in enumerate(criteria.sub_questions, 1):
+                full_question += f"{i}. {sub_q}\n"
+
+        # 模範解答と出題趣旨の追加
+        model_answer_section = ""
+        if criteria.model_answer:
+            model_answer_section = f"""
+【模範解答】
+{criteria.model_answer}
+"""
+
+        grading_intention_section = ""
+        if criteria.grading_intention:
+            grading_intention_section = f"""
+【出題趣旨】
+{criteria.grading_intention}
+"""
+
         return f"""
 あなたはIPAプロジェクトマネージャ試験の専門採点者です。
 2次採点者が1次採点結果を適切に確認・修正できるよう、詳細な根拠と分析を提供してください。
 
 【問題】
-{criteria.question_text}
-
+{full_question}
+{model_answer_section}
+{grading_intention_section}
 【受験者の解答】
 {criteria.answer_text}
 

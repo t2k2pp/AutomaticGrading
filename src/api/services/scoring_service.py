@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 import httpx
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..models.answer import Answer
 from ..models.question import Question
@@ -34,6 +34,14 @@ class ScoringService:
     ) -> Answer:
         """解答提出"""
         try:
+            # 問題情報取得と文字数制限チェック
+            question = self.db.query(Question).filter(Question.id == question_id).first()
+            if not question:
+                raise ValueError(f"問題が見つかりません: {question_id}")
+
+            # 文字数制限バリデーション
+            if question.max_chars and len(answer_text) > question.max_chars:
+                raise ValueError(f"文字数制限を超えています: {len(answer_text)}文字 (上限: {question.max_chars}文字)")
             # 既存解答チェック
             existing_answer = self.db.query(Answer).filter(
                 Answer.exam_id == exam_id,
@@ -42,11 +50,21 @@ class ScoringService:
             ).first()
 
             if existing_answer:
+                # 解答更新時に関連する採点結果を無効化
+                existing_results = self.db.query(ScoringResult).filter(
+                    ScoringResult.answer_id == existing_answer.id,
+                    ScoringResult.status == ScoringStatus.COMPLETED
+                ).all()
+
+                for result in existing_results:
+                    result.status = ScoringStatus.PENDING
+                    logger.info(f"採点結果を無効化: scoring_result_id={result.id}")
+
                 # 解答更新
                 existing_answer.answer_text = answer_text
                 existing_answer.char_count = len(answer_text)
                 existing_answer.is_blank = not bool(answer_text.strip())
-                existing_answer.updated_at = datetime.utcnow()
+                existing_answer.updated_at = datetime.now(timezone.utc)
                 answer = existing_answer
             else:
                 # 新規解答作成
@@ -79,22 +97,29 @@ class ScoringService:
         if not answer:
             raise ValueError(f"解答が見つかりません: {answer_id}")
 
-        # 既存の採点結果チェック
+        # 既存の有効な採点結果チェック（回答更新後の再採点を考慮）
         existing_result = self.db.query(ScoringResult).filter(
             ScoringResult.answer_id == answer_id,
             ScoringResult.status == ScoringStatus.COMPLETED
         ).first()
 
-        if existing_result:
-            logger.info(f"既存の採点結果を返します: {answer_id}")
-            return existing_result
+        # 回答の更新時刻と採点完了時刻を比較して再採点の必要性を判定
+        if existing_result and existing_result.scoring_completed_at:
+            # updated_atがNoneの場合は初回登録なので既存結果を使用
+            if answer.updated_at is None or answer.updated_at <= existing_result.scoring_completed_at:
+                logger.info(f"既存の有効な採点結果を返します: {answer_id}")
+                return existing_result
+            else:
+                logger.info(f"回答が更新されているため再採点します: answer_id={answer_id}")
+                # 既存結果を無効化
+                existing_result.status = ScoringStatus.PENDING
 
         # 新規採点結果作成
         scoring_result = ScoringResult(
             answer_id=answer_id,
             status=ScoringStatus.PENDING,
             scoring_method=ScoringMethod.COMPREHENSIVE,
-            scoring_started_at=datetime.utcnow()
+            scoring_started_at=datetime.now(timezone.utc)
         )
         self.db.add(scoring_result)
         self.db.commit()
@@ -126,7 +151,7 @@ class ScoringService:
             scoring_result.processing_time_ms = scores.get("processing_time_ms")
 
             scoring_result.status = ScoringStatus.COMPLETED
-            scoring_result.scoring_completed_at = datetime.utcnow()
+            scoring_result.scoring_completed_at = datetime.now(timezone.utc)
 
             self.db.commit()
             self.db.refresh(scoring_result)

@@ -23,10 +23,20 @@ import { apiService } from '../services/apiService';
 
 interface Question {
   id: number;
-  text: string;
-  maxChars: number;
+  exam_id: number;
+  title: string;
+  question_number: string;
+  background_text: string;
+  question_text: string;
+  sub_questions: string[] | null;
+  model_answer: string;
+  max_chars: number;
   points: number;
-  category: string;
+  grading_intention: string | null;
+  grading_commentary: string | null;
+  keywords: string[] | null;
+  has_sub_questions: boolean;
+  display_name: string;
 }
 
 interface ScoringResult {
@@ -40,29 +50,7 @@ interface ScoringResult {
   aspect_scores?: Record<string, number>;
 }
 
-const SAMPLE_QUESTIONS: Question[] = [
-  {
-    id: 1,
-    text: "あなたが担当したプロジェクトでリスクが顕在化した原因を、具体的な状況を含めて40字以内で述べよ。",
-    maxChars: 40,
-    points: 25,
-    category: "リスク管理"
-  },
-  {
-    id: 2,
-    text: "プロジェクトの品質向上のために実施した具体的な取り組みとその効果を80字以内で述べよ。",
-    maxChars: 80,
-    points: 25,
-    category: "品質管理"
-  },
-  {
-    id: 3,
-    text: "ステークホルダーとのコミュニケーション課題をどのように解決したか、具体例を含めて100字以内で述べよ。",
-    maxChars: 100,
-    points: 25,
-    category: "コミュニケーション管理"
-  }
-];
+// データベースから問題を取得する
 
 const AnswerSubmission: React.FC = () => {
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
@@ -72,9 +60,35 @@ const AnswerSubmission: React.FC = () => {
   const [scoringResult, setScoringResult] = useState<ScoringResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isScoring, setIsScoring] = useState<boolean>(false);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // 問題を取得
+  const fetchQuestions = async () => {
+    try {
+      setLoading(true);
+      // 試験ID=1から問題を取得（実際にはプルダウンで選択可能にすることも可能）
+      const response = await fetch('/api/admin/questions?exam_id=1');
+      if (response.ok) {
+        const data = await response.json();
+        setQuestions(data);
+      } else {
+        setError('問題の取得に失敗しました');
+      }
+    } catch (err) {
+      setError('問題の取得中にエラーが発生しました');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // コンポーネント読み込み時に問題を取得
+  React.useEffect(() => {
+    fetchQuestions();
+  }, []);
 
   const handleQuestionSelect = (questionId: number) => {
-    const question = SAMPLE_QUESTIONS.find(q => q.id === questionId);
+    const question = questions.find(q => q.id === questionId);
     setSelectedQuestion(question || null);
     setAnswerText('');
     setScoringResult(null);
@@ -169,12 +183,20 @@ const AnswerSubmission: React.FC = () => {
                 value={selectedQuestion?.id || ''}
                 onChange={(e) => handleQuestionSelect(Number(e.target.value))}
                 label="問題を選択"
+                disabled={loading}
               >
-                {SAMPLE_QUESTIONS.map((question) => (
-                  <MenuItem key={question.id} value={question.id}>
-                    問題{question.id}: {question.category} ({question.maxChars}字以内)
+                {loading ? (
+                  <MenuItem disabled>
+                    <CircularProgress size={20} sx={{ mr: 1 }} />
+                    問題を読み込み中...
                   </MenuItem>
-                ))}
+                ) : (
+                  questions.map((question) => (
+                    <MenuItem key={question.id} value={question.id}>
+                      {question.display_name} ({question.max_chars}字以内)
+                    </MenuItem>
+                  ))
+                )}
               </Select>
             </FormControl>
 
@@ -182,16 +204,11 @@ const AnswerSubmission: React.FC = () => {
             {selectedQuestion && (
               <Card sx={{ mb: 2, bgcolor: 'grey.50' }}>
                 <CardContent>
-                  <Box display="flex" alignItems="center" mb={1}>
+                  <Box display="flex" alignItems="center" mb={2}>
                     <Assessment color="primary" sx={{ mr: 1 }} />
                     <Typography variant="h6">
-                      問題{selectedQuestion.id}
+                      {selectedQuestion.question_number}: {selectedQuestion.title}
                     </Typography>
-                    <Chip
-                      label={selectedQuestion.category}
-                      size="small"
-                      sx={{ ml: 1 }}
-                    />
                     <Chip
                       label={`${selectedQuestion.points}点`}
                       size="small"
@@ -199,9 +216,42 @@ const AnswerSubmission: React.FC = () => {
                       sx={{ ml: 1 }}
                     />
                   </Box>
-                  <Typography variant="body1">
-                    {selectedQuestion.text}
+
+                  {/* 背景情報 */}
+                  {selectedQuestion.background_text && (
+                    <>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+                        【背景情報・プロジェクト概要】
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 2, whiteSpace: 'pre-line', bgcolor: 'background.paper', p: 2, borderRadius: 1 }}>
+                        {selectedQuestion.background_text}
+                      </Typography>
+                    </>
+                  )}
+
+                  {/* 設問 */}
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+                    【設問】
                   </Typography>
+                  <Typography variant="body1" sx={{ mb: 2 }}>
+                    {selectedQuestion.question_text}
+                  </Typography>
+
+                  {/* 複数設問がある場合 */}
+                  {selectedQuestion.has_sub_questions && selectedQuestion.sub_questions && (
+                    <>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+                        【詳細設問】
+                      </Typography>
+                      <Box sx={{ ml: 2, mb: 2 }}>
+                        {selectedQuestion.sub_questions.map((subQ, index) => (
+                          <Typography key={index} variant="body2" sx={{ mb: 1 }}>
+                            {index + 1}. {subQ}
+                          </Typography>
+                        ))}
+                      </Box>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -215,14 +265,14 @@ const AnswerSubmission: React.FC = () => {
               value={answerText}
               onChange={(e) => setAnswerText(e.target.value)}
               disabled={!selectedQuestion}
-              placeholder={selectedQuestion ? `${selectedQuestion.maxChars}字以内で解答を入力してください` : "問題を選択してください"}
+              placeholder={selectedQuestion ? `${selectedQuestion.max_chars}字以内で解答を入力してください` : "問題を選択してください"}
               sx={{ mb: 2 }}
               helperText={
                 selectedQuestion && answerText
-                  ? `${answerText.length}/${selectedQuestion.maxChars}文字`
+                  ? `${answerText.length}/${selectedQuestion.max_chars}文字`
                   : ''
               }
-              error={selectedQuestion ? answerText.length > selectedQuestion.maxChars : false}
+              error={selectedQuestion ? answerText.length > selectedQuestion.max_chars : false}
             />
 
             {/* エラー表示 */}
@@ -244,7 +294,7 @@ const AnswerSubmission: React.FC = () => {
                   !answerText.trim() ||
                   isSubmitting ||
                   isScoring ||
-                  (selectedQuestion && answerText.length > selectedQuestion.maxChars)
+                  (selectedQuestion && answerText.length > selectedQuestion.max_chars)
                 }
                 size="large"
               >
