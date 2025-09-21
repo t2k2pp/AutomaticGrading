@@ -31,7 +31,9 @@ import {
   School,
   Quiz,
   Save,
-  Cancel
+  Cancel,
+  CloudUpload,
+  FileUpload
 } from '@mui/icons-material';
 
 interface Exam {
@@ -45,9 +47,18 @@ interface Question {
   id: number;
   exam_id: number;
   title: string;
-  text: string;
-  max_score: number;
-  char_limit: number;
+  question_number: string;
+  background_text: string;
+  question_text: string;
+  sub_questions: string[] | null;
+  model_answer: string;
+  max_chars: number;
+  points: number;
+  grading_intention: string | null;
+  grading_commentary: string | null;
+  keywords: string[] | null;
+  has_sub_questions: boolean;
+  display_name: string;
 }
 
 interface TabPanelProps {
@@ -82,13 +93,31 @@ export const AdminPanel: React.FC = () => {
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
 
+  // CSV アップロード状態
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [csvExamName, setCsvExamName] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    uploadId?: string;
+    status?: string;
+    message?: string;
+    progress?: number;
+  }>({});
+
   // フォーム状態
   const [examForm, setExamForm] = useState({ title: '', description: '' });
   const [questionForm, setQuestionForm] = useState({
     title: '',
-    text: '',
-    max_score: 25,
-    char_limit: 400
+    question_number: '',
+    background_text: '',
+    question_text: '',
+    sub_questions: [''],
+    model_answer: '',
+    max_chars: 400,
+    points: 25,
+    grading_intention: '',
+    grading_commentary: '',
+    keywords: ['']
   });
 
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -175,7 +204,19 @@ export const AdminPanel: React.FC = () => {
       if (response.ok) {
         showAlert('success', '問題を作成しました');
         setQuestionDialogOpen(false);
-        setQuestionForm({ title: '', text: '', max_score: 25, char_limit: 400 });
+        setQuestionForm({
+          title: '',
+          question_number: '',
+          background_text: '',
+          question_text: '',
+          sub_questions: [''],
+          model_answer: '',
+          max_chars: 400,
+          points: 25,
+          grading_intention: '',
+          grading_commentary: '',
+          keywords: ['']
+        });
         fetchQuestions(selectedExamId);
       } else {
         showAlert('error', '問題の作成に失敗しました');
@@ -209,7 +250,7 @@ export const AdminPanel: React.FC = () => {
   };
 
   const handleDeleteQuestion = async (questionId: number) => {
-    if (!confirm('この問題を削除してもよろしいですか？')) return;
+    if (!window.confirm('この問題を削除してもよろしいですか？')) return;
 
     try {
       const response = await fetch(`/api/admin/questions/${questionId}`, {
@@ -232,15 +273,105 @@ export const AdminPanel: React.FC = () => {
       setEditingQuestion(question);
       setQuestionForm({
         title: question.title,
-        text: question.text,
-        max_score: question.max_score,
-        char_limit: question.char_limit
+        question_number: question.question_number,
+        background_text: question.background_text,
+        question_text: question.question_text,
+        sub_questions: question.sub_questions || [''],
+        model_answer: question.model_answer,
+        max_chars: question.max_chars,
+        points: question.points,
+        grading_intention: question.grading_intention || '',
+        grading_commentary: question.grading_commentary || '',
+        keywords: question.keywords || ['']
       });
     } else {
       setEditingQuestion(null);
-      setQuestionForm({ title: '', text: '', max_score: 25, char_limit: 400 });
+      setQuestionForm({
+        title: '',
+        question_number: '',
+        background_text: '',
+        question_text: '',
+        sub_questions: [''],
+        model_answer: '',
+        max_chars: 400,
+        points: 25,
+        grading_intention: '',
+        grading_commentary: '',
+        keywords: ['']
+      });
     }
     setQuestionDialogOpen(true);
+  };
+
+  // CSV アップロード処理
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+    }
+  };
+
+  const handleCSVUpload = async () => {
+    if (!selectedFile || !csvExamName.trim()) {
+      showAlert('error', 'CSVファイルと試験名を入力してください');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('exam_name', csvExamName);
+
+      const response = await fetch('/api/admin/questions/csv/execute', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setUploadProgress({
+          uploadId: result.upload_id,
+          status: 'processing',
+          message: result.message
+        });
+        showAlert('success', result.message);
+
+        // アップロード状況を監視
+        monitorUploadProgress(result.upload_id);
+
+        // フォームをリセット
+        setSelectedFile(null);
+        setCsvExamName('');
+
+        // 試験一覧を更新
+        fetchExams();
+      } else {
+        const error = await response.json();
+        showAlert('error', error.detail || 'アップロードに失敗しました');
+      }
+    } catch (error) {
+      showAlert('error', 'アップロードに失敗しました');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const monitorUploadProgress = async (uploadId: string) => {
+    try {
+      const response = await fetch(`/api/admin/questions/csv/status/${uploadId}`);
+      if (response.ok) {
+        const status = await response.json();
+        setUploadProgress(status);
+
+        if (status.status === 'processing') {
+          // 3秒後に再チェック
+          setTimeout(() => monitorUploadProgress(uploadId), 3000);
+        }
+      }
+    } catch (error) {
+      console.error('Progress monitoring error:', error);
+    }
   };
 
   return (
@@ -259,6 +390,7 @@ export const AdminPanel: React.FC = () => {
         <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)}>
           <Tab icon={<School />} label="試験管理" />
           <Tab icon={<Quiz />} label="問題管理" />
+          <Tab icon={<CloudUpload />} label="CSV一括登録" />
         </Tabs>
 
         {/* 試験管理タブ */}
@@ -338,9 +470,10 @@ export const AdminPanel: React.FC = () => {
               <TableHead>
                 <TableRow>
                   <TableCell>ID</TableCell>
+                  <TableCell>問題番号</TableCell>
                   <TableCell>タイトル</TableCell>
-                  <TableCell>問題文</TableCell>
-                  <TableCell>満点</TableCell>
+                  <TableCell>設問文</TableCell>
+                  <TableCell>配点</TableCell>
                   <TableCell>文字制限</TableCell>
                   <TableCell>操作</TableCell>
                 </TableRow>
@@ -349,15 +482,16 @@ export const AdminPanel: React.FC = () => {
                 {questions.map((question) => (
                   <TableRow key={question.id}>
                     <TableCell>{question.id}</TableCell>
+                    <TableCell>{question.question_number}</TableCell>
                     <TableCell>{question.title}</TableCell>
                     <TableCell sx={{ maxWidth: 300 }}>
-                      {question.text.length > 100
-                        ? `${question.text.substring(0, 100)}...`
-                        : question.text
+                      {question.question_text.length > 100
+                        ? `${question.question_text.substring(0, 100)}...`
+                        : question.question_text
                       }
                     </TableCell>
-                    <TableCell>{question.max_score}点</TableCell>
-                    <TableCell>{question.char_limit}文字</TableCell>
+                    <TableCell>{question.points}点</TableCell>
+                    <TableCell>{question.max_chars}文字</TableCell>
                     <TableCell>
                       <Box display="flex" gap={1}>
                         <IconButton
@@ -380,6 +514,126 @@ export const AdminPanel: React.FC = () => {
               </TableBody>
             </Table>
           </TableContainer>
+        </TabPanel>
+
+        {/* CSV一括登録タブ */}
+        <TabPanel value={tabValue} index={2}>
+          <Typography variant="h5" gutterBottom>
+            📋 問題CSV一括登録
+          </Typography>
+
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                CSV形式の要件
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                以下の形式でCSVファイルを準備してください：
+              </Typography>
+              <Box component="pre" sx={{ backgroundColor: 'grey.100', p: 2, borderRadius: 1, fontSize: 12 }}>
+{`問題番号,タイトル,背景情報,設問文,模範解答,配点,文字制限,出題趣旨,採点講評,キーワード
+問1,リスク管理,プロジェクト背景...,設問内容...,模範解答...,25,400,出題趣旨...,採点講評...,キーワード1,キーワード2`}
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                • 必須項目：問題番号、タイトル、設問文、模範解答
+                <br />
+                • 任意項目：背景情報、配点（デフォルト25点）、文字制限（デフォルト400文字）、出題趣旨、採点講評、キーワード
+              </Typography>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                ファイルアップロード
+              </Typography>
+
+              <Box sx={{ mb: 3 }}>
+                <TextField
+                  fullWidth
+                  label="試験名"
+                  value={csvExamName}
+                  onChange={(e) => setCsvExamName(e.target.value)}
+                  placeholder="例：2024年度 プロジェクトマネジメント試験"
+                  sx={{ mb: 2 }}
+                  required
+                />
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                  <Button
+                    component="label"
+                    variant="outlined"
+                    startIcon={<FileUpload />}
+                    disabled={isUploading}
+                  >
+                    CSVファイルを選択
+                    <input
+                      type="file"
+                      accept=".csv"
+                      hidden
+                      onChange={handleFileChange}
+                    />
+                  </Button>
+                  {selectedFile && (
+                    <Typography variant="body2" color="text.secondary">
+                      選択済み: {selectedFile.name}
+                    </Typography>
+                  )}
+                </Box>
+
+                <Button
+                  variant="contained"
+                  startIcon={<CloudUpload />}
+                  onClick={handleCSVUpload}
+                  disabled={!selectedFile || !csvExamName.trim() || isUploading}
+                  sx={{ mb: 2 }}
+                >
+                  {isUploading ? 'アップロード中...' : 'アップロード実行'}
+                </Button>
+              </Box>
+
+              {uploadProgress.uploadId && (
+                <Card variant="outlined" sx={{ mt: 2 }}>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      処理状況
+                    </Typography>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2">
+                        アップロードID: {uploadProgress.uploadId}
+                      </Typography>
+                      <Typography variant="body2">
+                        ステータス: {uploadProgress.status}
+                      </Typography>
+                      <Typography variant="body2">
+                        メッセージ: {uploadProgress.message}
+                      </Typography>
+                      {uploadProgress.progress !== undefined && (
+                        <Typography variant="body2">
+                          進捗: {uploadProgress.progress}%
+                        </Typography>
+                      )}
+                    </Box>
+                    {uploadProgress.status === 'processing' && (
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        処理中です。しばらくお待ちください...
+                      </Alert>
+                    )}
+                    {uploadProgress.status === 'completed' && (
+                      <Alert severity="success" sx={{ mt: 1 }}>
+                        アップロードが完了しました！
+                      </Alert>
+                    )}
+                    {uploadProgress.status === 'error' && (
+                      <Alert severity="error" sx={{ mt: 1 }}>
+                        アップロード中にエラーが発生しました
+                      </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </CardContent>
+          </Card>
         </TabPanel>
       </Paper>
 
@@ -423,6 +677,14 @@ export const AdminPanel: React.FC = () => {
         <DialogContent>
           <TextField
             fullWidth
+            label="問題番号（例：問1、設問1）"
+            value={questionForm.question_number}
+            onChange={(e) => setQuestionForm({ ...questionForm, question_number: e.target.value })}
+            margin="normal"
+            required
+          />
+          <TextField
+            fullWidth
             label="問題タイトル"
             value={questionForm.title}
             onChange={(e) => setQuestionForm({ ...questionForm, title: e.target.value })}
@@ -431,27 +693,70 @@ export const AdminPanel: React.FC = () => {
           />
           <TextField
             fullWidth
-            label="問題文"
-            value={questionForm.text}
-            onChange={(e) => setQuestionForm({ ...questionForm, text: e.target.value })}
+            label="背景情報・プロジェクト概要"
+            value={questionForm.background_text}
+            onChange={(e) => setQuestionForm({ ...questionForm, background_text: e.target.value })}
             margin="normal"
             multiline
-            rows={6}
+            rows={4}
             required
+            helperText="プロジェクトの背景情報、組織・体制、技術的制約など"
+          />
+          <TextField
+            fullWidth
+            label="設問文"
+            value={questionForm.question_text}
+            onChange={(e) => setQuestionForm({ ...questionForm, question_text: e.target.value })}
+            margin="normal"
+            multiline
+            rows={3}
+            required
+            helperText="実際の設問内容"
+          />
+          <TextField
+            fullWidth
+            label="模範解答"
+            value={questionForm.model_answer}
+            onChange={(e) => setQuestionForm({ ...questionForm, model_answer: e.target.value })}
+            margin="normal"
+            multiline
+            rows={4}
+            required
+            helperText="AI採点の参考となる模範解答"
+          />
+          <TextField
+            fullWidth
+            label="出題趣旨"
+            value={questionForm.grading_intention}
+            onChange={(e) => setQuestionForm({ ...questionForm, grading_intention: e.target.value })}
+            margin="normal"
+            multiline
+            rows={2}
+            helperText="この問題で評価したいポイント（任意）"
+          />
+          <TextField
+            fullWidth
+            label="採点講評"
+            value={questionForm.grading_commentary}
+            onChange={(e) => setQuestionForm({ ...questionForm, grading_commentary: e.target.value })}
+            margin="normal"
+            multiline
+            rows={2}
+            helperText="採点時の注意点や補足情報（任意）"
           />
           <Box display="flex" gap={2} mt={2}>
             <TextField
-              label="満点"
+              label="配点"
               type="number"
-              value={questionForm.max_score}
-              onChange={(e) => setQuestionForm({ ...questionForm, max_score: parseInt(e.target.value) || 25 })}
+              value={questionForm.points}
+              onChange={(e) => setQuestionForm({ ...questionForm, points: parseInt(e.target.value) || 25 })}
               sx={{ width: 120 }}
             />
             <TextField
               label="文字制限"
               type="number"
-              value={questionForm.char_limit}
-              onChange={(e) => setQuestionForm({ ...questionForm, char_limit: parseInt(e.target.value) || 400 })}
+              value={questionForm.max_chars}
+              onChange={(e) => setQuestionForm({ ...questionForm, max_chars: parseInt(e.target.value) || 400 })}
               sx={{ width: 120 }}
             />
           </Box>
